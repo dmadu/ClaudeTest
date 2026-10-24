@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
 import { LOGIN_URL, useAuth } from '../auth/AuthContext.jsx'
+import usePageTitle from '../lib/usePageTitle.js'
 
 export default function Home() {
   const { user, loading } = useAuth()
+  usePageTitle('Home')
 
   return (
     <section>

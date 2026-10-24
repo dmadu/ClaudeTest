@@ -1,0 +1,10 @@
+line-length = 110
+target-version = "py312"
+extend-exclude = ["migrations"]
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+
+[lint.per-file-ignores]
+# Tests may use asserts and throwaway secrets.
+"tests/*" = ["E501", "S101", "S105", "S106", "S108", "B017"]

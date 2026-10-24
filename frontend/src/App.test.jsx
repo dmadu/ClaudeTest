@@ -106,6 +106,7 @@ describe('login page', () => {
   it.each([
     ['invalid', 'We could not verify your sign-in. Please try again.'],
     ['unavailable', 'Sign-in is not available right now. Please try again later.'],
+    ['ratelimited', 'Too many sign-in attempts. Please wait a minute and try again.'],
     ['something-else', 'Sign-in failed. Please try again.'],
   ])('shows a message for error=%s', async (code, message) => {
     mockApi()

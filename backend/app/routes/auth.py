@@ -1,6 +1,7 @@
 import re
+import secrets
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html import escape
 
 import jwt
@@ -10,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..aaf import ATTRIBUTES_CLAIM, InvalidAssertion, verify_assertion
 from ..auth import current_user
-from ..extensions import db
+from ..extensions import db, limiter
 from ..models import UsedToken, User
 
 bp = Blueprint("auth", __name__)
@@ -26,9 +27,14 @@ def _login_error(code):
     return redirect(_frontend(f"/login?error={code}"), 303)
 
 
+def _too_many_sign_ins(_limit):
+    # These are browser navigations, so show the login page with a message, not raw JSON.
+    return _login_error("ratelimited")
+
+
 def _consume_jti(identity):
     """Record the assertion id. Returns False if it was already used."""
-    db.session.execute(delete(UsedToken).where(UsedToken.expires_at < datetime.now(timezone.utc)))
+    db.session.execute(delete(UsedToken).where(UsedToken.expires_at < datetime.now(UTC)))
     db.session.add(UsedToken(jti=identity.jti, expires_at=identity.expires_at))
     try:
         db.session.commit()
@@ -67,6 +73,7 @@ def _user_json(user):
 
 
 @bp.get("/login")
+@limiter.limit("20 per minute", on_breach=_too_many_sign_ins)
 def login():
     if current_app.config["AAF_MOCK"]:
         return redirect("/api/auth/mock-login")
@@ -78,6 +85,7 @@ def login():
 
 
 @bp.post("/callback")
+@limiter.limit("10 per minute", on_breach=_too_many_sign_ins)
 def callback():
     token = request.form.get("assertion")
     if not token:
@@ -102,6 +110,7 @@ def callback():
     user = _upsert_user(identity)
     session.clear()
     session["user_id"] = user.id
+    session["csrf"] = secrets.token_urlsafe(32)
     session.permanent = True
     return redirect(_frontend("/dashboard"), 303)
 
@@ -109,7 +118,11 @@ def callback():
 @bp.get("/me")
 def me():
     user = current_user()
-    return jsonify(user=_user_json(user) if user else None)
+    if user is None:
+        return jsonify(user=None, csrf_token=None)
+    if not session.get("csrf"):
+        session["csrf"] = secrets.token_urlsafe(32)
+    return jsonify(user=_user_json(user), csrf_token=session["csrf"])
 
 
 @bp.post("/logout")
@@ -145,10 +158,15 @@ def mock_login():
         cfg["AAF_SECRET"],
         algorithm="HS256",
     )
-    return (
+    page = (
         "<!doctype html><title>Mock AAF sign-in</title>"
         '<form id="f" method="post" action="/api/auth/callback">'
         f'<input type="hidden" name="assertion" value="{escape(assertion)}">'
         "<noscript><button>Continue</button></noscript></form>"
         "<script>document.getElementById('f').submit()</script>"
+    )
+    return (
+        page,
+        200,
+        {"Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; form-action 'self'"},
     )

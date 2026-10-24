@@ -12,7 +12,9 @@ docker compose up --build
 ```
 
 - Frontend: http://localhost:5173
-- API health check: http://localhost:5001/api/health
+- API health check: http://localhost:5000/api/health
+
+All ports are published on `127.0.0.1` only.
 
 The backend applies database migrations on start.
 
@@ -22,7 +24,7 @@ Backend (needs a PostgreSQL database; set `DATABASE_URL`):
 
 ```bash
 cd backend
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/flask --app wsgi db upgrade
 .venv/bin/flask --app wsgi run --debug
 ```
@@ -35,12 +37,29 @@ npm install
 npm run dev
 ```
 
-## Tests
+## Tests and checks
 
 ```bash
-cd backend && .venv/bin/python -m pytest
-cd frontend && npm test
+# backend: tests, lint, format
+cd backend && .venv/bin/python -m pytest && .venv/bin/ruff check . && .venv/bin/ruff format --check .
+
+# frontend: tests, lint, build
+cd frontend && npm test && npm run lint && npm run build
 ```
+
+End-to-end tests (Playwright, real Chrome) drive the running app with the mock AAF login. They sign in
+many times a minute, so start the backend with the sign-in rate limit off first, and turn it back on
+afterwards:
+
+```bash
+RATELIMIT_ENABLED=false docker compose up -d backend
+cd frontend && npm run e2e
+docker compose up -d backend
+```
+
+They create throwaway users named `mock!e2e...` and clean up their own records. In CI the suite uses
+Playwright's Chromium (`CI=1`). See [docs/security_checklist.md](docs/security_checklist.md) for what
+Phase 5 checked and what is still open.
 
 ## Signing in
 
@@ -64,8 +83,28 @@ The app refuses to start with `AAF_MOCK=true` when `APP_ENV=production`.
 2. Set `AAF_MOCK=false`, `AAF_RAPID_CONNECT_URL`, `AAF_SECRET` and `AAF_AUDIENCE` in `.env`.
 3. For production also set `APP_ENV=production`, a strong `SECRET_KEY` and `SESSION_COOKIE_SECURE=true`.
 
+## Image uploads
+
+Images are stored on disk in `UPLOAD_FOLDER` (a Docker volume, `uploads`) under random names. Only JPEG and
+PNG are accepted, up to 5 MB and 50 megapixels. The type is decided from the file's own bytes, not its name
+or the browser's claim, and the whole picture is decoded to prove it is sound. Images are served only to the
+record's owner through `/api/records/<id>/image`.
+
+## Sample data
+
+With `AAF_MOCK=true`, sign in once (the Login link) so the fake user exists, then create sample records:
+
+```bash
+docker compose exec backend flask --app wsgi seed-records --user mock!dev --count 25
+```
+
+Use `--count 1000` to try the table with a large list. The command refuses to run when `APP_ENV=production`.
+
 ## Status
 
 - Phase 1 (public site, navigation, contact form): done.
-- Phase 2 (AAF login, sessions, protected dashboard): done. The dashboard is a placeholder.
-- Phase 3 (records table): not started.
+- Phase 2 (AAF login, sessions, protected dashboard): done.
+- Phase 3 (read-only records table: pagination, sorting, thumbnails): done.
+- Phase 4 (add, edit, delete records with image upload): done.
+- Phase 5 (hardening: CSRF, headers, rate limits, full image checks, accessibility, tests, CI): done. See [docs/security_checklist.md](docs/security_checklist.md).
+- Phase 6 (deployment): not started.

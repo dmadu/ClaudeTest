@@ -13,9 +13,7 @@ class Config:
         "DATABASE_URL", "postgresql+psycopg://records:records@localhost:5432/records"
     )
     CORS_ORIGINS = [
-        o.strip()
-        for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
-        if o.strip()
+        o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()
     ]
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 
@@ -36,14 +34,23 @@ class Config:
     # Where the browser is sent after login. Empty means same origin.
     FRONTEND_URL = os.environ.get("FRONTEND_URL", "").rstrip("/")
 
+    # Number of reverse proxies in front of the app (0 = none). Needed so rate limits see the
+    # real client address instead of the proxy's.
+    PROXY_HOPS = int(os.environ.get("PROXY_HOPS", "0"))
+
+    RATELIMIT_ENABLED = _flag("RATELIMIT_ENABLED", True)
+    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+    RATELIMIT_HEADERS_ENABLED = True
+
 
 class TestConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = "sqlite://"
-    SECRET_KEY = "test-secret-key"
+    SECRET_KEY = "test-secret-key"  # noqa: S105 (tests only)
     AAF_RAPID_CONNECT_URL = "https://rapid.test.aaf.edu.au/jwt/authnrequest/research/abc123"
-    AAF_SECRET = "test-aaf-shared-secret-0123456789abcdef"
+    AAF_SECRET = "test-aaf-shared-secret-0123456789abcdef"  # noqa: S105 (tests only)
     AAF_ISSUER = "https://rapid.test.aaf.edu.au"
     AAF_AUDIENCE = "https://records.example.test"
     AAF_MOCK = False
     FRONTEND_URL = ""
+    RATELIMIT_ENABLED = False

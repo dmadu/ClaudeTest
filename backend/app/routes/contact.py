@@ -2,7 +2,7 @@ import re
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import db
+from ..extensions import db, limiter
 from ..models import ContactMessage
 
 bp = Blueprint("contact", __name__)
@@ -28,6 +28,7 @@ def validate(data):
 
 
 @bp.post("/contact")
+@limiter.limit("5 per minute;30 per hour")
 def create_contact_message():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):

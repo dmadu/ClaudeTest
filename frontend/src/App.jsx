@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import Home from './pages/Home.jsx'
 import Login from './pages/Login.jsx'
 import NotFound from './pages/NotFound.jsx'
+import RecordForm from './pages/RecordForm.jsx'
 
 export default function App() {
   return (
@@ -20,6 +21,8 @@ export default function App() {
           <Route path="login" element={<Login />} />
           <Route element={<ProtectedRoute />}>
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="records/new" element={<RecordForm />} />
+            <Route path="records/:id/edit" element={<RecordForm />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Route>

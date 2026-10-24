@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { getJson, postJson } from '../api/client.js'
+import { getJson, postJson, setCsrfToken } from '../api/client.js'
 
 const AuthContext = createContext(null)
 
@@ -12,7 +12,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let cancelled = false
     getJson('/api/auth/me')
-      .then((data) => !cancelled && setUser(data.user))
+      .then((data) => {
+        if (cancelled) return
+        setCsrfToken(data.csrf_token)
+        setUser(data.user)
+      })
       .catch(() => !cancelled && setUser(null))
       .finally(() => !cancelled && setLoading(false))
     return () => {
@@ -22,10 +26,20 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     await postJson('/api/auth/logout')
+    setCsrfToken(null)
     setUser(null)
   }, [])
 
-  const value = useMemo(() => ({ user, loading, logout }), [user, loading, logout])
+  // Called when the API says the session is gone, so protected pages redirect to login.
+  const expireSession = useCallback(() => {
+    setCsrfToken(null)
+    setUser(null)
+  }, [])
+
+  const value = useMemo(
+    () => ({ user, loading, logout, expireSession }),
+    [user, loading, logout, expireSession],
+  )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

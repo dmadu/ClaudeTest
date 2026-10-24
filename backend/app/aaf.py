@@ -1,6 +1,7 @@
 """Verification of AAF Rapid Connect assertions (HS256 JWTs)."""
+
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import jwt
 
@@ -59,7 +60,7 @@ def verify_assertion(token, *, secret, issuer, audience):
     return Identity(
         subject=subject,
         jti=jti,
-        expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
+        expires_at=datetime.fromtimestamp(claims["exp"], tz=UTC),
         name=_clean(attributes.get("displayname") or attributes.get("cn")),
         email=_clean(attributes.get("mail")),
     )

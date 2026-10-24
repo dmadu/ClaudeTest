@@ -1,4 +1,7 @@
+import usePageTitle from '../lib/usePageTitle.js'
+
 export default function About() {
+  usePageTitle('About')
   return (
     <section>
       <h1>About</h1>

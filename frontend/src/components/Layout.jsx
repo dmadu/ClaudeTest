@@ -47,7 +47,10 @@ export default function Layout() {
               )}
               {user && (
                 <>
-                  <li className="user-name" aria-label="Signed in as">{user.name || user.email}</li>
+                  <li className="user-name">
+                    <span className="visually-hidden">Signed in as </span>
+                    {user.name || user.email}
+                  </li>
                   <li>
                     <button type="button" className="link-button" onClick={onLogout}>Logout</button>
                   </li>

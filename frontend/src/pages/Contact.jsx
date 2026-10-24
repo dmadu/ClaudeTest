@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ApiError, postJson } from '../api/client.js'
+import usePageTitle from '../lib/usePageTitle.js'
 
 const EMPTY = { name: '', email: '', message: '' }
 const LIMITS = { name: 100, email: 255, message: 2000 }
@@ -17,6 +18,7 @@ export function validate(values) {
 }
 
 export default function Contact() {
+  usePageTitle('Contact')
   const [values, setValues] = useState(EMPTY)
   const [errors, setErrors] = useState({})
   const [status, setStatus] = useState('idle') // idle | sending | sent | failed

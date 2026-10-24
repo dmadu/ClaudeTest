@@ -38,6 +38,11 @@ def assert_login_error(res, code="invalid"):
     assert res.headers["Location"] == f"/login?error={code}"
 
 
+def logout(client):
+    token = client.get("/api/auth/me").get_json()["csrf_token"]
+    return client.post("/api/auth/logout", headers={"X-CSRF-Token": token})
+
+
 def logged_in_user(client):
     return client.get("/api/auth/me").get_json()["user"]
 
@@ -75,7 +80,7 @@ def test_session_cookie_is_http_only_and_lax(client):
 
 def test_same_subject_reuses_user_and_updates_details(client):
     post_assertion(client, make_token())
-    client.post("/api/auth/logout")
+    logout(client)
     post_assertion(
         client,
         make_token(**{ATTRIBUTES_CLAIM: {"displayname": "Ada King", "mail": "ada@new.example.edu"}}),
@@ -87,7 +92,7 @@ def test_same_subject_reuses_user_and_updates_details(client):
 
 def test_different_subjects_create_different_users(client):
     post_assertion(client, make_token(sub="a"))
-    client.post("/api/auth/logout")
+    logout(client)
     post_assertion(client, make_token(sub="b"))
     assert db.session.query(User).count() == 2
 
@@ -110,7 +115,16 @@ def test_missing_attributes_still_logs_in(client):
         {"sub": None},
         {"jti": None},
     ],
-    ids=["expired", "not-yet-valid", "wrong-audience", "wrong-issuer", "wrong-typ", "no-typ", "no-sub", "no-jti"],
+    ids=[
+        "expired",
+        "not-yet-valid",
+        "wrong-audience",
+        "wrong-issuer",
+        "wrong-typ",
+        "no-typ",
+        "no-sub",
+        "no-jti",
+    ],
 )
 def test_bad_claims_are_rejected(client, overrides):
     res = post_assertion(client, make_token(**overrides))
@@ -127,8 +141,16 @@ def test_wrong_signing_secret_is_rejected(client):
 def test_unsigned_token_is_rejected(client):
     now = int(time.time())
     token = jwt.encode(
-        {"iss": TestConfig.AAF_ISSUER, "aud": TestConfig.AAF_AUDIENCE, "iat": now, "nbf": now,
-         "exp": now + 60, "jti": "j", "typ": "authnresponse", "sub": "s"},
+        {
+            "iss": TestConfig.AAF_ISSUER,
+            "aud": TestConfig.AAF_AUDIENCE,
+            "iat": now,
+            "nbf": now,
+            "exp": now + 60,
+            "jti": "j",
+            "typ": "authnresponse",
+            "sub": "s",
+        },
         None,
         algorithm="none",
     )
@@ -143,7 +165,7 @@ def test_garbage_and_missing_assertion_rejected(client):
 def test_replayed_assertion_is_rejected(client):
     token = make_token()
     assert post_assertion(client, token).headers["Location"] == "/dashboard"
-    client.post("/api/auth/logout")
+    logout(client)
     assert_login_error(post_assertion(client, token))
     assert logged_in_user(client) is None
 
@@ -171,12 +193,12 @@ def test_new_login_replaces_previous_session(client):
 def test_me_when_logged_out(client):
     res = client.get("/api/auth/me")
     assert res.status_code == 200
-    assert res.get_json() == {"user": None}
+    assert res.get_json() == {"user": None, "csrf_token": None}
 
 
 def test_logout_ends_session(client):
     post_assertion(client, make_token())
-    assert client.post("/api/auth/logout").status_code == 204
+    assert logout(client).status_code == 204
     assert logged_in_user(client) is None
 
 
@@ -199,6 +221,7 @@ def test_login_required_blocks_and_allows(app, client):
 
 
 # --- mock mode -------------------------------------------------------------
+
 
 class MockConfig(TestConfig):
     AAF_MOCK = True
@@ -234,7 +257,7 @@ def test_mock_users_are_separate(mock_client):
         html = mock_client.get(f"/api/auth/mock-login?user={who}").get_data(as_text=True)
         token = html.split('name="assertion" value="')[1].split('"')[0]
         mock_client.post("/api/auth/callback", data={"assertion": token})
-        mock_client.post("/api/auth/logout")
+        logout(mock_client)
     assert db.session.query(User).count() == 2
 
 
