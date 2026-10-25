@@ -28,12 +28,12 @@ export default [
     languageOptions: { globals: { ...globals.browser, ...globals.node, vi: 'readonly' } },
   },
   {
-    files: ['vite.config.js', 'eslint.config.js', 'playwright.config.js', 'e2e/**/*.js'],
+    files: ['vite.config.js', 'eslint.config.js', 'playwright.config.js', 'playwright.prod.config.js', 'e2e/**/*.js', 'e2e-prod/**/*.js'],
     languageOptions: { globals: { ...globals.node } },
   },
   {
     // page.evaluate() callbacks run in the browser
-    files: ['e2e/**/*.js'],
+    files: ['e2e/**/*.js', 'e2e-prod/**/*.js'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 ]

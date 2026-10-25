@@ -34,6 +34,10 @@ class Config:
     # Where the browser is sent after login. Empty means same origin.
     FRONTEND_URL = os.environ.get("FRONTEND_URL", "").rstrip("/")
 
+    # How long browsers must insist on HTTPS (seconds), sent in production. 0 switches it off, which
+    # is only for a rehearsal on localhost: browsers remember HSTS per host name, whatever the port.
+    HSTS_MAX_AGE = int(os.environ.get("HSTS_MAX_AGE", "31536000"))
+
     # Number of reverse proxies in front of the app (0 = none). Needed so rate limits see the
     # real client address instead of the proxy's.
     PROXY_HOPS = int(os.environ.get("PROXY_HOPS", "0"))

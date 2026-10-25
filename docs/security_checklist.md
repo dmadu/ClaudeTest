@@ -1,7 +1,8 @@
 # Security and quality checklist (Phase 5)
 
-Each item says what was done and how it was checked. Items marked **Phase 6** need the production
-setup (HTTPS proxy, production containers) and are not done yet.
+Each item says what was done and how it was checked. Phase 6 (the production setup) is done and was
+rehearsed; see [deployment.md](deployment.md). What still needs a real server, domain and AAF
+registration is listed under *Known limitations*.
 
 The final sign-off is for the project owner: tick the boxes at the end once you have read the
 limitations.
@@ -48,7 +49,7 @@ limitations.
 | Only JPEG and PNG, decided from the file's bytes, not its name or the browser's claim | Done | `tests/test_record_crud.py` (GIF, SVG, HTML, PDF and WebP renamed to `.png` are refused) |
 | The whole picture is decoded, so a damaged or truncated file, or a valid header followed by garbage, is refused | Done | `tests/test_security.py`. This also caught a broken test image of my own during the end-to-end run |
 | Images over 50 megapixels are refused before decoding, so a small file that expands hugely cannot exhaust memory | Done | `test_huge_dimensions_are_rejected_before_decoding` |
-| 5 MB limit for the image, and a 5.5 MB limit for the whole request (answered with JSON) | Done in Flask. **Phase 6**: also set `client_max_body_size 6m;` on the proxy | `test_image_at_the_size_limit_is_accepted`, `test_huge_request_is_rejected_with_json` |
+| 5 MB limit for the image, and a 5.5 MB limit for the whole request (answered with JSON) | Done in Flask and at the proxy (Caddy refuses bodies over 6 MB with the same JSON message) | `test_image_at_the_size_limit_is_accepted`, `test_huge_request_is_rejected_with_json`, production smoke test "the proxy refuses an oversized upload" |
 | Stored under a random name outside the code folder; the client's file name is ignored | Done | `test_create_ignores_client_file_name_and_owner` |
 | Served only to the owner, with `nosniff` and a sandboxing CSP, so an upload can never run as a page | Done | `test_image_responses_are_sandboxed_and_not_marked_no_store` |
 | Path traversal in a stored name cannot read or delete files outside the upload folder | Done | `test_image_path_cannot_escape_upload_folder`, `test_delete_never_removes_files_outside_upload_folder` |
@@ -62,7 +63,7 @@ limitations.
 | Errors under `/api` are JSON; unexpected errors give a generic message and never a stack trace or the exception text | Done | `test_unexpected_errors_do_not_leak_details` |
 | Rate limits per client address: contact 5 a minute and 30 an hour, sign-in start 20 a minute, AAF callback 10 a minute. Sign-in limits send the browser to the login page with a message | Done | `tests/test_security.py`; checked live (7 contact posts gave `201 x5, 429 x2`) |
 | Limits count the real client address behind a proxy (`PROXY_HOPS`), and ignore a forged `X-Forwarded-For` otherwise | Done | `test_limits_are_per_client_address_behind_a_proxy`, `test_forwarded_header_is_ignored_without_a_proxy` |
-| Security headers for the web pages themselves (CSP, frame and referrer policy) | **Phase 6** (set in the production Nginx config; the Vite dev server does not send them) | |
+| Security headers for the web pages themselves (CSP, HSTS, frame and referrer policy) | Done in the production proxy. The Vite development server does not send them. The app runs under that CSP with no violations | `deploy/Caddyfile`; production smoke tests "security headers" and "Content Security Policy without violations" |
 
 ## Secrets and configuration (NFR-1)
 
@@ -71,9 +72,10 @@ limitations.
 | All secrets come from environment variables. `.env` is git-ignored; `.env.example` holds placeholders only | Done | `.gitignore`. A search of the source finds only the test configuration's values and the development fallbacks, which production refuses |
 | Production refuses a `SECRET_KEY` that is a known placeholder (such as `change-me`) or shorter than 32 characters | Done | `test_production_refuses_weak_secret_keys` |
 | Development ports (frontend, backend, database) are published on `127.0.0.1` only | Done | `docker-compose.yml`, `docker ps` |
-| The Flask debugger is controlled by `FLASK_DEBUG` and must be `0` in production | Done in config. **Phase 6**: production compose sets it | |
+| The Flask debugger is off in production, and the app refuses to start with it on, with insecure cookies, with the mock login, or with a weak `SECRET_KEY` | Done | `tests/test_security.py` (`test_production_refuses_*`, `test_production_requires_secure_cookies`) |
 | Python dev tools (pytest, ruff, pip-audit) are not in the runtime image | Done | `requirements.txt` vs `requirements-dev.txt` |
-| Containers run as a non-root user, behind Gunicorn | **Phase 6** | |
+| Containers: the API runs as an unprivileged user behind Gunicorn, with a read-only file system, no Linux capabilities and `no-new-privileges`; only the proxy publishes ports (80 and 443) | Done | `deploy/rehearse.sh` section 2 |
+| Production uses a different compose project from development, so a release can never touch the dev stack | Done | `deploy/lib.sh` |
 
 ## Dependencies
 
@@ -118,8 +120,13 @@ Every sort uses an index (`user_id` plus the sort column, with `lower(...)` for 
 
 ## Known limitations
 
-- **Rate limit counts live in memory, per process.** With more than one worker or server, set
-  `RATELIMIT_STORAGE_URI` to Redis, or limits are applied per worker.
+- **Not rehearsable here:** a real certificate from Let's Encrypt (the rehearsal uses Caddy's local
+  certificate authority, the same code path with a different issuer), the AAF registration, and
+  copying backups off the server. See *You do this* in [deployment.md](deployment.md).
+- **Rate limits and workers:** production runs one Gunicorn worker, which keeps the in-memory limits
+  correct. More workers need a shared store; the backend refuses to start with more workers and
+  in-memory limits.
+
 - **Behind a proxy, set `PROXY_HOPS=1`** (or the real number). Otherwise every visitor shares the
   proxy's address and the limits hit everyone at once.
 - **AAF Rapid Connect has no `state` or nonce**, so a sign-in cannot be tied to the browser that
@@ -133,8 +140,8 @@ Every sort uses an index (`user_id` plus the sort column, with `lower(...)` for 
 ## Sign-off
 
 - [ ] I have read the known limitations
-- [ ] Production settings (`APP_ENV=production`, strong `SECRET_KEY`, `SESSION_COOKIE_SECURE=true`,
-      `PROXY_HOPS`, `FLASK_DEBUG=0`) are planned for Phase 6
+- [ ] I have the production settings ready (`.env.prod`, see [deployment.md](deployment.md); the app
+      refuses to start if they are unsafe)
 - [ ] Screen reader testing is scheduled
 
 Signed off by: ______________________  Date: ______________

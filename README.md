@@ -18,6 +18,18 @@ All ports are published on `127.0.0.1` only.
 
 The backend applies database migrations on start.
 
+## Deploy to production
+
+HTTPS, backups, releases and rollback are covered in [docs/deployment.md](docs/deployment.md). In short:
+
+```bash
+cp .env.prod.example .env.prod      # fill in every value
+deploy/release.sh 1.0.0             # backup, build, migrate, start, health check
+deploy/rollback.sh 0.9.0            # back to an earlier release
+deploy/restore.sh backups/<folder>  # put a backup back
+deploy/rehearse.sh                  # try all of this on your own machine first
+```
+
 ## Run without Docker
 
 Backend (needs a PostgreSQL database; set `DATABASE_URL`):
@@ -107,4 +119,4 @@ Use `--count 1000` to try the table with a large list. The command refuses to ru
 - Phase 3 (read-only records table: pagination, sorting, thumbnails): done.
 - Phase 4 (add, edit, delete records with image upload): done.
 - Phase 5 (hardening: CSRF, headers, rate limits, full image checks, accessibility, tests, CI): done. See [docs/security_checklist.md](docs/security_checklist.md).
-- Phase 6 (deployment): not started.
+- Phase 6 (deployment: production images, HTTPS, backups, release and rollback scripts, monitoring, rehearsal): done. See [docs/deployment.md](docs/deployment.md). Registering with AAF and pointing the real domain at the server are still yours to do.

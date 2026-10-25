@@ -1,0 +1,153 @@
+# Production stack: HTTPS proxy + web app, API (Gunicorn), PostgreSQL, one-off migrations, backups.
+#
+# Do not call docker compose directly. Use deploy/release.sh, which passes the right project name,
+# env file and image version. See docs/deployment.md.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-hardening: &hardening
+  restart: unless-stopped
+  logging: *logging
+  security_opt:
+    - no-new-privileges:true
+
+x-backend-env: &backend-env
+  APP_ENV: production
+  FLASK_DEBUG: "0"
+  SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in the env file}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@db:5432/${POSTGRES_DB:?}
+  UPLOAD_FOLDER: /app/uploads
+  SESSION_COOKIE_SECURE: "true"
+  PROXY_HOPS: "1"
+  HSTS_MAX_AGE: ${HSTS_MAX_AGE:-31536000}
+  CORS_ORIGINS: ""
+  FRONTEND_URL: ""
+  RATELIMIT_ENABLED: "true"
+  RATELIMIT_STORAGE_URI: memory://
+  WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+  AAF_MOCK: "false"
+  AAF_RAPID_CONNECT_URL: ${AAF_RAPID_CONNECT_URL:?set AAF_RAPID_CONNECT_URL in the env file}
+  AAF_SECRET: ${AAF_SECRET:?set AAF_SECRET in the env file}
+  AAF_ISSUER: ${AAF_ISSUER:?set AAF_ISSUER in the env file}
+  AAF_AUDIENCE: ${AAF_AUDIENCE:?set AAF_AUDIENCE in the env file}
+
+services:
+  db:
+    <<: *hardening
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Runs once per release, before the API starts: applies database migrations.
+  migrate:
+    image: site-records-backend:${APP_VERSION:-latest}
+    pull_policy: never
+    restart: "no"
+    logging: *logging
+    command: ["flask", "--app", "wsgi", "db", "upgrade"]
+    environment: *backend-env
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+
+  backend:
+    <<: *hardening
+    image: site-records-backend:${APP_VERSION:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment: *backend-env
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - uploads:/app/uploads
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+
+  proxy:
+    <<: *hardening
+    image: site-records-proxy:${APP_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: deploy/proxy.Dockerfile
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS (the domain name) in the env file}
+      HSTS_MAX_AGE: ${HSTS_MAX_AGE:-31536000}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - caddy_data:/data     # certificates: keep this volume, or Let's Encrypt limits are reached
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      # Caddy's admin interface, reachable only inside the container: tells us Caddy itself is up.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Takes a backup when it starts and then every BACKUP_INTERVAL_HOURS.
+  backup:
+    <<: *hardening
+    image: postgres:16
+    user: "${BACKUP_UID:-1000}:${BACKUP_GID:-1000}"
+    command: ["/backup.sh", "loop"]
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:?}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      PGDATABASE: ${POSTGRES_DB:?}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - uploads:/uploads:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    cap_drop: [ALL]
+    healthcheck:
+      # Unhealthy if there has been no successful backup for two intervals.
+      test: ["CMD-SHELL", "[ -f /tmp/last_backup_ok ] && [ $$(( $$(date +%s) - $$(stat -c %Y /tmp/last_backup_ok) )) -lt $$(( $${BACKUP_INTERVAL_HOURS} * 7200 )) ]"]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 5m
+
+volumes:
+  db_data:
+  uploads:
+  caddy_data:
+  caddy_config:

@@ -27,6 +27,10 @@ def _check_aaf_config(app):
             raise RuntimeError(
                 "SECRET_KEY must be a random value of at least 32 characters when APP_ENV=production"
             )
+        if not cfg["SESSION_COOKIE_SECURE"]:
+            raise RuntimeError("SESSION_COOKIE_SECURE must be true when APP_ENV=production")
+        if app.debug:
+            raise RuntimeError("FLASK_DEBUG must be 0 when APP_ENV=production")
 
 
 def create_app(config_object=Config):

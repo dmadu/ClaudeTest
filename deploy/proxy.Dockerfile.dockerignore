@@ -1,0 +1,9 @@
+.git
+.idea
+backend
+backups*
+.env*
+**/node_modules
+**/dist
+**/test-results
+**/playwright-report

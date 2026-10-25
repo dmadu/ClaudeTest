@@ -143,10 +143,11 @@ def test_security_headers_on_api_responses(client):
 
 
 STRONG_KEY = "k" * 40
+PROD = {"APP_ENV": "production", "SECRET_KEY": STRONG_KEY, "SESSION_COOKIE_SECURE": True}
 
 
 def test_hsts_only_in_production(tmp_path):
-    app, ctx = build_app(tmp_path, APP_ENV="production", SECRET_KEY=STRONG_KEY)
+    app, ctx = build_app(tmp_path, **PROD)
     try:
         res = app.test_client().get("/api/health")
         assert "max-age=" in res.headers["Strict-Transport-Security"]
@@ -341,6 +342,59 @@ def test_production_refuses_weak_secret_keys(tmp_path, key):
 
 
 def test_production_accepts_a_strong_secret_key(tmp_path):
-    app, ctx = build_app(tmp_path, APP_ENV="production", SECRET_KEY=STRONG_KEY)
+    app, ctx = build_app(tmp_path, **PROD)
     ctx.pop()
     assert app.config["APP_ENV"] == "production"
+
+
+def test_production_requires_secure_cookies():
+    class Prod(TestConfig):
+        APP_ENV = "production"
+        SECRET_KEY = STRONG_KEY
+        SESSION_COOKIE_SECURE = False
+
+    with pytest.raises(RuntimeError, match="SESSION_COOKIE_SECURE"):
+        create_app(Prod)
+
+
+def test_production_refuses_debug_mode(monkeypatch):
+    monkeypatch.setenv("FLASK_DEBUG", "1")
+
+    class Prod(TestConfig):
+        APP_ENV = "production"
+        SECRET_KEY = STRONG_KEY
+        SESSION_COOKIE_SECURE = True
+
+    with pytest.raises(RuntimeError, match="FLASK_DEBUG"):
+        create_app(Prod)
+
+
+def test_hsts_lifetime_is_configurable(tmp_path):
+    app, ctx = build_app(tmp_path, HSTS_MAX_AGE=0, **PROD)
+    try:
+        header = app.test_client().get("/api/health").headers["Strict-Transport-Security"]
+        assert header == "max-age=0"
+    finally:
+        ctx.pop()
+
+
+def test_hsts_default_is_one_year_with_subdomains(tmp_path):
+    app, ctx = build_app(tmp_path, **PROD)
+    try:
+        header = app.test_client().get("/api/health").headers["Strict-Transport-Security"]
+        assert header == "max-age=31536000; includeSubDomains"
+    finally:
+        ctx.pop()
+
+
+def test_health_reports_a_database_outage_without_details(app, client, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    def down(*_args, **_kwargs):
+        raise OperationalError("SELECT 1", {}, Exception("connection to 10.0.0.5 refused"))
+
+    monkeypatch.setattr(db.session, "execute", down)
+    res = client.get("/api/health")
+    assert res.status_code == 503
+    assert res.get_json() == {"status": "error", "database": "unavailable"}
+    assert "10.0.0.5" not in res.get_data(as_text=True)

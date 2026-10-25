@@ -1,0 +1,57 @@
+# Reverse proxy and web server.
+#
+# - Terminates HTTPS. For a real domain Caddy gets and renews a Let's Encrypt certificate by itself
+#   (ports 80 and 443 must be reachable). For "localhost" it uses its own local CA, for rehearsals.
+# - Serves the built single-page app and sends the security headers for the pages.
+# - Passes /api/* to the Flask app. Caddy replaces any X-Forwarded-For sent by the browser, so the
+#   app (PROXY_HOPS=1) sees the real client address.
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	header {
+		-Server
+	}
+
+	# Headers for the pages. The API sets its own on its responses.
+	@pages not path /api/*
+	header @pages {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Strict-Transport-Security "max-age={$HSTS_MAX_AGE:31536000}; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	handle /api/* {
+		# 5 MB image plus the other form fields. The app also enforces this.
+		request_body {
+			max_size 6MB
+		}
+		reverse_proxy backend:5000
+	}
+
+	handle {
+		root * /srv
+		# Two disjoint matchers: Caddy runs the catch-all form of a directive after path-specific ones,
+		# so a plain `header Cache-Control` here would overwrite the long-lived one for /assets/*.
+		@page_files not path /assets/*
+		header @page_files Cache-Control "no-cache"
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle_errors {
+		@too_large expression `{err.status_code} == 413`
+		handle @too_large {
+			header Content-Type application/json
+			respond `{"errors":{"image":"Image must be 5 MB or smaller."}}` 413
+		}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

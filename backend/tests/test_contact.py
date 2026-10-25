@@ -7,7 +7,7 @@ VALID = {"name": "Ada", "email": "ada@example.com", "message": "Hello there"}
 def test_health(client):
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.get_json() == {"status": "ok"}
+    assert res.get_json() == {"status": "ok", "database": "ok"}
 
 
 def test_contact_saves_message(client):

@@ -41,7 +41,11 @@ def init_security(app):
         if response.mimetype == "application/json":
             headers.setdefault("Cache-Control", "no-store")
         if app.config["APP_ENV"] == "production":
-            headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            max_age = app.config["HSTS_MAX_AGE"]
+            headers.setdefault(
+                "Strict-Transport-Security",
+                f"max-age={max_age}" + ("; includeSubDomains" if max_age > 0 else ""),
+            )
         return response
 
     @app.errorhandler(HTTPException)
